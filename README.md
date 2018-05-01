@@ -11,3 +11,9 @@ from the /app directory run `npm start`
 
 ## Built with
 Node, Koa, Cycle.js, xstream
+
+## TODO
+* Tests
+* Error handling
+* Mobile portrait view
+* Lots of stuff..
