@@ -16,7 +16,7 @@ const skRotateplane = keyframes({
 const spinnerClass = style({
   width: '40px',
   height: '40px',
-  backgroundColor: '#333',
+  backgroundColor: 'orangered',
   animationName: skRotateplane,
   animationDuration: '1.2s',
   animationIterationCount: 'infinite',

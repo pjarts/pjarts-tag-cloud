@@ -2,22 +2,27 @@ import xs from 'xstream'
 import { style } from 'typestyle'
 import Spinner from './Spinner'
 
-const HEIGHT = 500
-const WIDTH = 500
-const TEXT_MARGIN = [ 0.01, -0.1 ]
-const FONT_SIZE_RANGE = [0, 1500]
+const HEIGHT_UNITS = 500
+const WIDTH_UNITS = 500
 
 export default function TagCloud (sources) {
   const tagList$ = sources.tagList
   const vtree$ = tagList$
     .map(tagList => {
-      const fontSizes = normalize(tagList.map(t => t[1]), 10, 300)
+      // normalize token values into a range of font sizes
+      const fontSizes = normalize(tagList.map(t => t[1]), 10, 200)
+      // hashed key to force cycle.js to re-render the entire svg (no patching)
       const svgKey = btoa(JSON.stringify(tagList)).substr(0, 16)
       return (
-        <svg className="tag-cloud" key={svgKey} viewBox="0 0 500 500">
+        <svg className="tag-cloud"
+            preserveAspectRatio="xMidYMid meet"
+            key={svgKey} 
+            width="600"
+            height="600"
+            viewBox={`0 0 ${WIDTH_UNITS} ${HEIGHT_UNITS}`}>
           <g hook={{ insert: onInsertGroup }}>
           {tagList.map(([tag, val], idx) => 
-            <text x="0" y="0" style={`text-transform: uppercase; font-size:${fontSizes[idx]}px;`}>{tag}</text>
+            <text style={`text-transform: uppercase; font-size:${fontSizes[idx]}px;`}>{tag}</text>
           )}
           </g>
         </svg>
@@ -29,58 +34,102 @@ export default function TagCloud (sources) {
   }
 }
 
+/**
+ * Re-arrange <text> elements inside a <g> element
+ * to form a nice tag cloud
+ * @param {vnode} node 
+ */
 function onInsertGroup (node) {
   const { elm } = node
-  const children = Array.from(elm.children)
-  const bboxes = children.reduce((acc, child) => {
-    const bbox = child.getBoundingClientRect()
-
+  const rects = []
+  const transitions = []
+  for (let child of elm.children) {
+    const bbox = child.getBBox()
+    // center over origo
     const next = {
-      x: bbox.x,
-      y: bbox.y,
+      x: -bbox.width / 2,
+      y: -bbox.height / 2,
       width: bbox.width,
       height: bbox.height
     }
-    // apply margins
-    // next.height += 2 * TEXT_MARGIN[1] * next.height
-    // next.width += 2 * TEXT_MARGIN[0] * next.width
-    // move origin to center of bbox
-    next.x -= (next.width / 2)
-    next.y -= (next.height / 2)
+    // delta angle to add to each iteration
     let dAngle = Math.PI / 100
-    let dRadius = 0.007
+    // delta radius to add
+    let dRadius = 0.1
+    // spiral out from origin until no collision
+    // with any of the other rects is detected
     let i = 1
-    while (collides(next, acc)) {
-      next.x = next.x + i * dRadius * Math.cos(i * dAngle)
-      next.y = next.y + i * dRadius * Math.sin(i * dAngle)
+    while (rects.some(r => collides(
+      // resize the rects vertically in order to compensate
+      // for vertical padding on the <text> element
+      resize(next, 0, next.height * -0.10),
+      resize(r, 0, r.height * -0.10)        
+    ))) {
+      next.x = i * dRadius * Math.cos(i * dAngle) - next.width / 2
+      next.y = i * dRadius * Math.sin(i * dAngle) - next.height / 2
       i++
     }
-    next.dX = next.x - bbox.x
-    next.dY = next.y - bbox.y
-    acc.push(next)
-    return acc
-  }, [])
-  bboxes.forEach((b, i) => {
-    elm.children[i].setAttribute('transform', `matrix(1, 0, 0, 1, ${b.dX}, ${b.dY})`)
+    rects.push(next)
+    transitions.push({
+      dX: next.x - bbox.x,
+      dY: next.y - bbox.y
+    })
+  }
+  // move all text elements to their designated position
+  transitions.forEach((t, i) => {
+    elm.children[i].setAttribute(
+      'transform', 
+      `matrix(1, 0, 0, 1, ${t.dX}, ${t.dY})`
+    )
   })
+  // scale the group element to fit within the canvas
   const bbox = elm.getBBox()
-  const scale = Math.min(500 / bbox.width, 500 / bbox.height)
+  const scale = Math.min(
+    WIDTH_UNITS / bbox.width, 
+    HEIGHT_UNITS / bbox.height
+  )
   const translateX = -bbox.x * scale
   const translateY = -bbox.y * scale
-  debugger
-  elm.setAttribute('transform', `matrix(${scale}, 0, 0, ${scale}, ${translateX}, ${translateY})`)
+  elm.setAttribute(
+    'transform',
+    `matrix(${scale}, 0, 0, ${scale}, ${translateX}, ${translateY})`
+  )
 }
 
-function collides (bbox, boxes) {
-  return boxes.some(b => {
-    const intersectX = bbox.x + bbox.width > b.x && bbox.x < b.x + b.width
-    const intersectY = bbox.y + bbox.height > b.y && bbox.y < b.y + b.height
-    return intersectX && intersectY
-  })
+/**
+ * Expands or contracts a rect from its center point
+ * @param {object} rect 
+ * @param {number} mX 
+ * @param {number} mY 
+ */
+function resize (rect, mX, mY) {
+  return {
+    x: rect.x - mX,
+    y: rect.y - mY,
+    width: rect.width + 2 * mX,
+    height: rect.height + 2 * mY
+  }
 }
 
+/**
+ * Check whether two rects intersect
+ * @param {object} r1 
+ * @param {object} r2 
+ */
+function collides (r1, r2) {
+  const intersectX = r1.x + r1.width > r2.x && r1.x < r2.x + r2.width
+  const intersectY = r1.y + r1.height > r2.y && r1.y < r2.y + r2.height
+  return intersectX && intersectY
+}
+
+/**
+ * Normalize an array of numbers
+ * @param {array} values 
+ * @param {number} min 
+ * @param {number} max 
+ */
 function normalize (values, min, max) {
   const highest = Math.max(...values)
   const scale = (max - min) / highest
-  return values.map(v => min + scale * v)
+  return values.map(v => Math.floor(min + scale * v))
 }

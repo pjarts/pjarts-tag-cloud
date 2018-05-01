@@ -9,20 +9,20 @@ export function App ({ DOM, HTTP, props$ }) {
   const Form = isolate(TagForm)
   const form = Form({ DOM })
   const spinner = Spinner()
-  const formDom$ = form.DOM
+
   const request$ = form.value.map(({ hashtag, rssLink}) => ({
-      url: 'http://localhost:3000/tags',
-      method: 'POST',
-      category: 'tags',
-      send: {
-        hashtag,
-        rssLink
-      },
-      type: 'application/json',
-      accept: 'application/json'
-    }))
-  const responses$ = HTTP
-    .select('tags')
+    url: 'http://localhost:3000/tags',
+    method: 'POST',
+    category: 'tags',
+    send: {
+      hashtag,
+      rssLink
+    },
+    type: 'application/json',
+    accept: 'application/json'
+  }))
+
+  const responses$ = HTTP.select('tags')
     .map(response$ => response$.replaceError(err => {
       if (err.response) {
         return xs.of(new Error(err.response.text))
@@ -31,9 +31,11 @@ export function App ({ DOM, HTTP, props$ }) {
       }
     }))
     .flatten()
+
   const tagList$ = responses$
     .filter(res => !(res instanceof Error))
     .map(res => res.body)
+
   const errorDom$ = xs.merge(
     responses$
       .filter(res => res instanceof Error)
@@ -44,20 +46,19 @@ export function App ({ DOM, HTTP, props$ }) {
       ),
     form.value.mapTo(<div className="error"></div>)
   ).startWith(<div></div>)
-  const tagSources = {
-    tagList: tagList$
-  }
-  const tagCloud = TagCloud(tagSources)
-  const tagCloudDom$ = tagCloud.DOM
+  
   const waitingForResponse$ = xs.merge(
     responses$.mapTo(false),
     form.value.mapTo(true)
-  )
-    .startWith(false)
+  ).startWith(false)
+
+  const tagCloud = TagCloud({
+    tagList: tagList$
+  })
 
   const vtree$ = xs.combine(
-    tagCloudDom$,
-    formDom$,
+    tagCloud.DOM,
+    form.DOM,
     errorDom$,
     waitingForResponse$,
     spinner.DOM
@@ -67,16 +68,18 @@ export function App ({ DOM, HTTP, props$ }) {
         <header>
           <h1>Tag Cloud by Per Jonsson</h1>
         </header>
-        <div className="spinner-wrapper" style={display('flex', waiting)}>
-          {spinner}
-        </div>
-        <div className="form-wrapper" style={display('block', !waiting)}>
+        <div className="form-wrapper">
           {form}
           <div className="errors">
             {errors}
           </div> 
         </div>
-        {tagCloud}
+        <div className="tag-cloud-wrapper">
+          <div className="spinner-wrapper" style={!waiting ? 'display: none;' : ''}>
+            {spinner}
+          </div>
+          {tagCloud}
+        </div>
         <footer>
           <div>
             <a href="mailto:per@pjarts.se">per@pjarts.se</a>
@@ -95,8 +98,4 @@ export function App ({ DOM, HTTP, props$ }) {
     HTTP: request$
   }
   return sinks
-}
-
-function display (val, cond) {
-  return `display: ${cond ? val : 'none'}`
 }
